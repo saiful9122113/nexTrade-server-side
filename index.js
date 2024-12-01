@@ -23,44 +23,44 @@ app.use(express.json());
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.lbe4zil.mongodb.net/?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
 
-function verifyJWT(req, res, next){
+function verifyJWT(req, res, next) {
     // console.log('token inside VerifyJWT',req.headers.authorization);
     const authHeader = req.headers.authorization;
 
-    if(!authHeader){
+    if (!authHeader) {
         return res.status(401).send('unauthorized access');
     }
 
     const token = authHeader.split(' ')[1];
 
-    jwt.verify(token, process.env.ACCESS_TOKEN, function(err, decoded){
-        if(err){
-            return res.status(403).send({message: 'forbidden access'})
+    jwt.verify(token, process.env.ACCESS_TOKEN, function (err, decoded) {
+        if (err) {
+            return res.status(403).send({ message: 'forbidden access' })
         }
         req.decoded = decoded;
         next();
     })
 }
 
-async function run(){
-    try{
+async function run() {
+    try {
         const productCollection = client.db('resaleProduct').collection('product');
         const userRoleCollection = client.db('resaleProduct').collection('userRole');
         const orderCollection = client.db('resaleProduct').collection('order');
 
-        app.get('/jwt', async(req, res)=>{
+        app.get('/jwt', async (req, res) => {
             const email = req.query.email;
-            const query = {email: email};
+            const query = { email: email };
             const user = await userRoleCollection.findOne(query);
-            if(user){
-                const token = jwt.sign({email}, process.env.ACCESS_TOKEN, {expiresIn: '14d'})
-                return res.send({accessToken: token});
+            if (user) {
+                const token = jwt.sign({ email }, process.env.ACCESS_TOKEN, { expiresIn: '14d' })
+                return res.send({ accessToken: token });
             }
-            res.status(403).send({accessToken: ''})
+            res.status(403).send({ accessToken: '' })
         })
 
         // Api for adding Product 
-        app.post('/add-product', async(req, res)=>{
+        app.post('/add-product', async (req, res) => {
             const product = req.body;
             // console.log(product);
             const result = await productCollection.insertOne(product);
@@ -68,22 +68,22 @@ async function run(){
         });
 
         // Api for post user & seller information 
-        app.post('/user-role', async(req, res)=>{
+        app.post('/user-role', async (req, res) => {
             const role = req.body;
-            const isEmailExist = await userRoleCollection.findOne({email: role.email})
-            if(!isEmailExist) {
+            const isEmailExist = await userRoleCollection.findOne({ email: role.email })
+            if (!isEmailExist) {
                 await userRoleCollection.insertOne(role);
-                const userInfo = await userRoleCollection.findOne({email: role.email})
+                const userInfo = await userRoleCollection.findOne({ email: role.email })
                 return res.send(userInfo);
             }
 
             return res.send(isEmailExist);
         });
 
-        app.get("/get-user-info/:email", async(req, res) => {
+        app.get("/get-user-info/:email", async (req, res) => {
             const email = req.params.email;
 
-            const userInfo = await userRoleCollection.findOne({email});
+            const userInfo = await userRoleCollection.findOne({ email });
 
             return res.send(userInfo);
         })
@@ -96,32 +96,32 @@ async function run(){
         });
 
         // api for single poduct
-        app.get("/single-product/:id", async(req, res) => {
+        app.get("/single-product/:id", async (req, res) => {
             const id = req.params.id;
-            const result = await productCollection.findOne({_id: new ObjectId(id)})
-            
+            const result = await productCollection.findOne({ _id: new ObjectId(id) })
+
             return res.send(result);
         })
 
         // api for search poduct
-        app.get("/search-product/:name", async(req, res) => {
+        app.get("/search-product/:name", async (req, res) => {
             const name = req.params.name;
             const result = await productCollection.find({
                 productName: { $regex: name, $options: "i" }
             }).toArray();
-            
+
             return res.send(result);
         })
-        
-        // Api for categorywise data 
-        app.get('/product/:category', async (req, res) => {
-            const query = { category: req.params.category };
-            const result = await productCollection.find(query).toArray();
-            res.send(result);
-        });
+
+        // // Api for categorywise data 
+        // app.get('/product/:category', async (req, res) => {
+        //     const query = { category: req.params.category };
+        //     const result = await productCollection.find(query).toArray();
+        //     res.send(result);
+        // });
 
         // Api for adding order 
-        app.post('/add-order', async(req, res)=>{
+        app.post('/add-order', async (req, res) => {
             const order = req.body;
             const result = await orderCollection.insertOne(order);
             res.send(result);
@@ -139,15 +139,42 @@ async function run(){
 
         // Api for orders depends on email 
         app.get('/my-orders/:email', async (req, res) => {
-            const query = {email: req.params.email};
+            const query = { email: req.params.email };
             const result = await orderCollection.find(query).toArray();
             res.send(result);
         });
 
+
+        // server.js
+        app.get('/product/:category', async (req, res) => {
+            const { category } = req.params;
+            const { minPrice, maxPrice } = req.query;
+
+            try {
+                const query = { category };
+
+                // Add price filtering to the query
+                if (minPrice || maxPrice) {
+                    query.productResalePrice = {};
+                    if (minPrice) query.productResalePrice.$gte = parseFloat(minPrice);
+                    if (maxPrice) query.productResalePrice.$lte = parseFloat(maxPrice);
+                }
+
+                const products = await productCollection.find(query).toArray();
+                res.send(products);
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ error: 'Failed to fetch products' });
+            }
+        });
+
+
+
+
         app.post("/get-payment-link", verifyJWT, async (req, res) => {
             try {
-                const {userInfo, product} = req.body;
-        
+                const { userInfo, product } = req.body;
+
                 const data = {
                     total_amount: product.productResalePrice,
                     currency: 'BDT',
@@ -186,25 +213,61 @@ async function run(){
                     // console.log('Redirecting to: ', GatewayPageURL)
                     return res.status(200).json({ url: GatewayPageURL })
                 });
-        
+
+
+
             } catch (error) {
                 console.log(error)
                 return res.status(500).json({ message: "Error in payment!" })
             }
         })
-        
+
+        // Payment success route
+        app.post('/success', async (req, res) => {
+            console.log('Payment Successful:', req.body);
+
+            // Simulate or process the payment data
+            const paymentDetails = {
+                transactionId: req.body.transactionId || '12345',
+                amount: req.body.amount || '100',
+                status: 'success',
+            };
+
+            // Send the payment data as a response
+            res.status(200).json(paymentDetails);
+        });
+
+
+        // Payment fail route
+        app.post('/fail', async (req, res) => {
+            console.log('Payment Failed:', req.body);
+            res.redirect('http://localhost:3000/fail');
+        });
+
+        // Payment cancel route
+        app.post('/cancel', async (req, res) => {
+            console.log('Payment Cancelled:', req.body);
+            res.redirect('http://localhost:3000/cancel');
+        });
+
+        // IPN route
+        app.post('/ipn', async (req, res) => {
+            console.log('IPN Callback:', req.body);
+            res.status(200).send('IPN received');
+        });
+
     }
-    finally{
+    finally {
 
     }
 }
-run().catch(err=>console.log(err))
+run().catch(err => console.log(err))
 
 
-app.get('/', async(req, res) =>{
+app.get('/', async (req, res) => {
     res.send('product resale server is running')
 });
 
-app.listen(port, ()=> {
+app.listen(port, () => {
     console.log(`product resale server running on this ${port}`)
 });
